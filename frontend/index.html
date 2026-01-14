@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Network Anomaly Detection Dashboard</title>
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -18,7 +18,6 @@
         .btn-primary { background: #007bff; color: white; }
         .btn-success { background: #28a745; color: white; }
         .btn-danger { background: #dc3545; color: white; }
-        .btn-secondary { background: #6c757d; color: white; }
         .btn:hover { opacity: 0.9; }
         .btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .select { padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
@@ -37,6 +36,7 @@
         .log-anomaly { background: #ffe6e6; font-weight: bold; }
         .chart-container { position: relative; height: 300px; }
         .loading { text-align: center; padding: 20px; color: #666; }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
@@ -44,6 +44,14 @@
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
+
+        const API_URL = window.location.hostname === 'localhost' 
+            ? 'http://localhost:8001' 
+            : 'https://YOUR_BACKEND_URL.onrender.com';
+        
+        const WS_URL = window.location.hostname === 'localhost'
+            ? 'ws://localhost:8001/ws'
+            : 'wss://YOUR_BACKEND_URL.onrender.com/ws';
 
         function Dashboard() {
             const [status, setStatus] = useState({});
@@ -60,7 +68,6 @@
             const latencyChartInstance = useRef(null);
             const anomalyChartInstance = useRef(null);
 
-            // Initialize WebSocket connection
             useEffect(() => {
                 connectWebSocket();
                 fetchStatus();
@@ -74,96 +81,40 @@
                 
                 return () => {
                     clearInterval(interval);
-                    if (wsRef.current) {
-                        wsRef.current.close();
-                    }
+                    if (wsRef.current) wsRef.current.close();
                 };
             }, []);
 
-            // Initialize charts
             useEffect(() => {
                 if (latencyChartRef.current && !latencyChartInstance.current) {
-                    const ctx = latencyChartRef.current.getContext('2d');
-                    latencyChartInstance.current = new Chart(ctx, {
+                    latencyChartInstance.current = new Chart(latencyChartRef.current, {
                         type: 'line',
-                        data: {
-                            labels: [],
-                            datasets: [{
-                                label: 'Latency (ms)',
-                                data: [],
-                                borderColor: '#007bff',
-                                backgroundColor: 'rgba(0, 123, 255, 0.1)',
-                                tension: 0.4
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            scales: {
-                                y: { beginAtZero: true }
-                            }
-                        }
+                        data: { labels: [], datasets: [{ label: 'Latency (ms)', data: [], borderColor: '#007bff', backgroundColor: 'rgba(0, 123, 255, 0.1)', tension: 0.4 }] },
+                        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
                     });
                 }
-
                 if (anomalyChartRef.current && !anomalyChartInstance.current) {
-                    const ctx = anomalyChartRef.current.getContext('2d');
-                    anomalyChartInstance.current = new Chart(ctx, {
+                    anomalyChartInstance.current = new Chart(anomalyChartRef.current, {
                         type: 'line',
-                        data: {
-                            labels: [],
-                            datasets: [{
-                                label: 'Anomaly Score',
-                                data: [],
-                                borderColor: '#dc3545',
-                                backgroundColor: 'rgba(220, 53, 69, 0.1)',
-                                tension: 0.4
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            scales: {
-                                y: { beginAtZero: true }
-                            }
-                        }
+                        data: { labels: [], datasets: [{ label: 'Anomaly Score', data: [], borderColor: '#dc3545', backgroundColor: 'rgba(220, 53, 69, 0.1)', tension: 0.4 }] },
+                        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
                     });
                 }
             }, []);
 
             const connectWebSocket = () => {
-                const ws = new WebSocket('ws://localhost:8001/ws');
-                
-                ws.onopen = () => {
-                    console.log('WebSocket connected');
-                    wsRef.current = ws;
-                };
-                
-                ws.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    handleRealtimeData(data);
-                };
-                
-                ws.onclose = () => {
-                    console.log('WebSocket disconnected');
-                    setTimeout(connectWebSocket, 3000);
-                };
+                const ws = new WebSocket(WS_URL);
+                ws.onopen = () => { console.log('WebSocket connected'); wsRef.current = ws; };
+                ws.onmessage = (event) => handleRealtimeData(JSON.parse(event.data));
+                ws.onclose = () => { console.log('WebSocket disconnected'); setTimeout(connectWebSocket, 3000); };
             };
 
             const handleRealtimeData = (data) => {
-                // Add to logs
-                setLogs(prev => {
-                    const newLogs = [...prev, data].slice(-50);
-                    return newLogs;
-                });
-
-                // Update charts
+                setLogs(prev => [...prev, data].slice(-50));
                 const timestamp = new Date(data.timestamp).toLocaleTimeString();
-                const latency = data.log.latency_ms;
-                const anomalyScore = data.prediction.anomaly_score;
-
+                
                 setLatencyData(prev => {
-                    const newData = [...prev, { timestamp, value: latency }].slice(-20);
+                    const newData = [...prev, { timestamp, value: data.log.latency_ms }].slice(-20);
                     if (latencyChartInstance.current) {
                         latencyChartInstance.current.data.labels = newData.map(d => d.timestamp);
                         latencyChartInstance.current.data.datasets[0].data = newData.map(d => d.value);
@@ -173,7 +124,7 @@
                 });
 
                 setAnomalyData(prev => {
-                    const newData = [...prev, { timestamp, value: anomalyScore }].slice(-20);
+                    const newData = [...prev, { timestamp, value: data.prediction.anomaly_score }].slice(-20);
                     if (anomalyChartInstance.current) {
                         anomalyChartInstance.current.data.labels = newData.map(d => d.timestamp);
                         anomalyChartInstance.current.data.datasets[0].data = newData.map(d => d.value);
@@ -185,81 +136,61 @@
 
             const fetchStatus = async () => {
                 try {
-                    const response = await fetch('http://localhost:8001/status');
-                    const data = await response.json();
-                    setStatus(data);
-                } catch (error) {
-                    console.error('Failed to fetch status:', error);
-                }
+                    const response = await fetch(`${API_URL}/status`);
+                    setStatus(await response.json());
+                } catch (error) { console.error('Failed to fetch status:', error); }
             };
 
             const fetchModels = async () => {
                 try {
-                    const response = await fetch('http://localhost:8001/models');
-                    const data = await response.json();
-                    setModels(data);
-                } catch (error) {
-                    console.error('Failed to fetch models:', error);
-                }
+                    const response = await fetch(`${API_URL}/models`);
+                    setModels(await response.json());
+                } catch (error) { console.error('Failed to fetch models:', error); }
             };
 
             const fetchMetrics = async () => {
                 try {
-                    const response = await fetch('http://localhost:8001/metrics');
-                    const data = await response.json();
-                    setMetrics(data);
-                } catch (error) {
-                    console.error('Failed to fetch metrics:', error);
-                }
+                    const response = await fetch(`${API_URL}/metrics`);
+                    setMetrics(await response.json());
+                } catch (error) { console.error('Failed to fetch metrics:', error); }
             };
 
             const handleTrain = async () => {
                 setIsTraining(true);
                 try {
-                    const response = await fetch('http://localhost:8001/train', {
+                    await fetch(`${API_URL}/train`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ duration_seconds: 60 })
                     });
-                    const data = await response.json();
-                    console.log('Training completed:', data);
                     fetchModels();
-                } catch (error) {
-                    console.error('Training failed:', error);
-                } finally {
-                    setIsTraining(false);
-                }
+                } catch (error) { console.error('Training failed:', error); }
+                finally { setIsTraining(false); }
             };
 
             const handleStart = async () => {
                 try {
-                    await fetch('http://localhost:8001/start', { method: 'POST' });
+                    await fetch(`${API_URL}/start`, { method: 'POST' });
                     fetchStatus();
-                } catch (error) {
-                    console.error('Failed to start:', error);
-                }
+                } catch (error) { console.error('Failed to start:', error); }
             };
 
             const handleStop = async () => {
                 try {
-                    await fetch('http://localhost:8001/stop', { method: 'POST' });
+                    await fetch(`${API_URL}/stop`, { method: 'POST' });
                     fetchStatus();
-                } catch (error) {
-                    console.error('Failed to stop:', error);
-                }
+                } catch (error) { console.error('Failed to stop:', error); }
             };
 
             const handleModelChange = async (modelName) => {
                 try {
-                    await fetch('http://localhost:8001/model', {
+                    await fetch(`${API_URL}/model`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ model_name: modelName })
                     });
                     fetchStatus();
-                } catch (error) {
-                    console.error('Failed to change model:', error);
-                }
+                } catch (error) { console.error('Failed to change model:', error); }
             };
 
             return (
@@ -267,43 +198,22 @@
                     <div className="header">
                         <h1>Network Anomaly Detection Dashboard</h1>
                         <div className="controls">
-                            <button 
-                                className="btn btn-primary" 
-                                onClick={handleTrain}
-                                disabled={isTraining || status.is_running}
-                            >
+                            <button className="btn btn-primary" onClick={handleTrain} disabled={isTraining || status.is_running}>
                                 {isTraining ? 'Training...' : 'Train Models'}
                             </button>
-                            
-                            <button 
-                                className="btn btn-success" 
-                                onClick={handleStart}
-                                disabled={status.is_running || status.training_data_size < 50}
-                            >
+                            <button className="btn btn-success" onClick={handleStart} disabled={status.is_running || status.training_data_size < 50}>
                                 Start Detection
                             </button>
-                            
-                            <button 
-                                className="btn btn-danger" 
-                                onClick={handleStop}
-                                disabled={!status.is_running}
-                            >
+                            <button className="btn btn-danger" onClick={handleStop} disabled={!status.is_running}>
                                 Stop Detection
                             </button>
-                            
-                            <select 
-                                className="select"
-                                value={status.current_model || ''}
-                                onChange={(e) => handleModelChange(e.target.value)}
-                                disabled={status.is_running}
-                            >
+                            <select className="select" value={status.current_model || ''} onChange={(e) => handleModelChange(e.target.value)} disabled={status.is_running}>
                                 {Object.entries(models.models || {}).map(([key, model]) => (
                                     <option key={key} value={key} disabled={!model.trained}>
                                         {model.name} {!model.trained ? '(Not Trained)' : ''}
                                     </option>
                                 ))}
                             </select>
-                            
                             <span className={`status ${status.is_running ? 'status-running' : 'status-stopped'}`}>
                                 {status.is_running ? 'RUNNING' : 'STOPPED'}
                             </span>
@@ -348,10 +258,7 @@
                                     <div className="loading">No logs yet. Start detection to see live data.</div>
                                 ) : (
                                     logs.slice(-20).map((log, index) => (
-                                        <div 
-                                            key={index} 
-                                            className={`log-entry ${log.prediction.is_anomaly ? 'log-anomaly' : 'log-normal'}`}
-                                        >
+                                        <div key={index} className={`log-entry ${log.prediction.is_anomaly ? 'log-anomaly' : 'log-normal'}`}>
                                             [{new Date(log.timestamp).toLocaleTimeString()}] 
                                             {log.prediction.is_anomaly ? ' 🚨 ANOMALY' : ' ✓ Normal'} - 
                                             Latency: {log.log.latency_ms.toFixed(1)}ms, 
@@ -370,7 +277,6 @@
                                 <canvas ref={latencyChartRef}></canvas>
                             </div>
                         </div>
-
                         <div className="card">
                             <h3>Anomaly Scores</h3>
                             <div className="chart-container">
